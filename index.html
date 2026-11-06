@@ -72,6 +72,23 @@
     .auth-provider:hover:not(:disabled) { background: #f9f9fc; border-color: #bdbed2; }
     .auth-provider:disabled { cursor: not-allowed; color: #77798b; background: #f7f7fa; }
     .auth-provider svg { width: 18px; height: 18px; }
+    .auth-divider { display: flex; align-items: center; gap: 12px; margin: 18px 0; color: var(--faint); font-size: 10px; }
+    .auth-divider::before, .auth-divider::after { height: 1px; flex: 1; background: var(--line); content: ""; }
+    .email-auth-form { display: grid; gap: 9px; }
+    .email-auth-form label { color: var(--muted); font-size: 11px; font-weight: 600; }
+    .email-auth-form input {
+      width: 100%;
+      min-height: 44px;
+      padding: 0 12px;
+      border: 1px solid #dfe0e8;
+      border-radius: 9px;
+      background: #fff;
+      color: var(--ink);
+      font-size: 12px;
+    }
+    .email-auth-form input::placeholder { color: var(--faint); }
+    .email-auth-form button { min-height: 44px; }
+    .email-auth-form button:disabled { cursor: wait; opacity: .65; }
     .auth-status { min-height: 35px; margin: 16px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
     .auth-status.error { color: #ac3e46; }
     .auth-footnote { margin: 13px 0 0; padding-top: 14px; border-top: 1px solid var(--line); color: var(--faint); font-size: 10px; line-height: 1.55; }
@@ -560,8 +577,8 @@
   THESIS: Daybook makes everyday spending legible as a calm, useful ledger—not a row of isolated hero metrics.
   OWN-WORLD: Cool white work surface, ink-violet navigation, precise lilac data marks, and one acid-mint signature.
   STORY: Create or sign into a private account, then record real transactions to build a personal money picture.
-  FIRST VIEWPORT: A focused Google/Apple account gate opens into a dashboard populated only by the signed-in user's entries.
-  FORM: A responsive, scannable finance dashboard with Supabase OAuth and account-scoped cloud transactions.
+  FIRST VIEWPORT: A focused Google or email sign-in opens into a dashboard populated only by the signed-in user's entries.
+  FORM: A responsive, scannable finance dashboard with Supabase authentication and account-scoped cloud transactions.
   -->
   <main class="auth-screen" id="auth-screen">
     <section class="auth-card" aria-labelledby="auth-title">
@@ -581,6 +598,12 @@
           Continue with Apple
         </button>
       </div>
+      <div class="auth-divider" aria-hidden="true">or use email</div>
+      <form class="email-auth-form" id="email-sign-in-form">
+        <label for="email-sign-in">Email address</label>
+        <input id="email-sign-in" name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+        <button class="primary-button" id="email-sign-in-button" type="submit" disabled>Continue with email</button>
+      </form>
       <p class="auth-status" id="auth-status" role="status" aria-live="polite">Checking account setup…</p>
       <p class="auth-footnote">Your transactions are private to your account. Daybook does not connect to your bank.</p>
     </section>
@@ -809,6 +832,7 @@
       function setProviderButtonsDisabled(disabled) {
         byId("google-sign-in").disabled = disabled;
         byId("apple-sign-in").disabled = disabled;
+        byId("email-sign-in-button").disabled = disabled;
       }
 
       function showSignedOut(message, isError = false) {
@@ -904,13 +928,34 @@
         }
       }
 
+      async function signInWithEmail(email) {
+        setProviderButtonsDisabled(true);
+        byId("email-sign-in-button").textContent = "Sending link…";
+        setAuthStatus("Sending a secure sign-in link…");
+        try {
+          const emailRedirectTo = `${window.location.origin}${window.location.pathname}`;
+          const { error } = await supabaseClient.auth.signInWithOtp({
+            email,
+            options: { emailRedirectTo }
+          });
+          if (error) throw error;
+          setAuthStatus("Check your inbox for a secure sign-in link. New accounts will be created when you confirm your email.");
+        } catch (error) {
+          setAuthStatus(error.message || "Couldn't send a sign-in link. Check the email address and try again.", true);
+          console.error("Daybook email sign-in failed.", error);
+        } finally {
+          setProviderButtonsDisabled(false);
+          byId("email-sign-in-button").textContent = "Continue with email";
+        }
+      }
+
       async function initializeAuth() {
         const config = window.DAYBOOK_CONFIG || {};
         const configured = typeof config.url === "string" && /^https:\/\/.+/.test(config.url) &&
           typeof config.publishableKey === "string" && config.publishableKey.length > 10 &&
           !config.publishableKey.includes("YOUR_");
         if (!configured) {
-          showSignedOut("Setup needed: add your Supabase project URL and publishable key to supabase-config.js. Follow SUPABASE_SETUP.md to enable Google and Apple.");
+          showSignedOut("Setup needed: add your Supabase project URL and publishable key to supabase-config.js. Follow SUPABASE_SETUP.md to enable email and Google sign-in.");
           setProviderButtonsDisabled(true);
           return;
         }
@@ -1192,6 +1237,12 @@
 
       byId("google-sign-in").addEventListener("click", () => signInWithProvider("google"));
       byId("apple-sign-in").addEventListener("click", () => signInWithProvider("apple"));
+      byId("email-sign-in-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const input = byId("email-sign-in");
+        if (!input.reportValidity()) return;
+        signInWithEmail(input.value.trim());
+      });
       document.querySelectorAll('input[name="account-type"]').forEach((input) => {
         input.addEventListener("change", () => {
           byId("account-type-submit").disabled = false;
